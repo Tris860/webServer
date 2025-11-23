@@ -9,7 +9,7 @@ import os
 # --- Configuration ---
 WS_HOST = "0.0.0.0"
 WS_PORT = int(os.environ.get("PORT", 8765))  # Render sets this automatically
-SERVER_B_URL = os.environ.get("SERVER_B_URL", "https://iot-gateway-server.onrender.com")
+SERVER_B_URL = os.environ.get("SERVER_B_URL", "https://iot-gateway-89zp.onrender.com/command")
 
 CONNECTED_CLIENTS = set()
 

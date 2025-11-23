@@ -1,72 +1,60 @@
 # app.py
-import asyncio
-import websockets
 import json
 import requests
 from datetime import datetime
 import os
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 # --- Configuration ---
-WS_HOST = "0.0.0.0"
-WS_PORT = int(os.environ.get("PORT", 8765))  # Render sets this automatically
+app = FastAPI()
 SERVER_B_URL = os.environ.get("SERVER_B_URL", "https://iot-gateway-89zp.onrender.com/command")
+connected_clients = set()
 
-CONNECTED_CLIENTS = set()
+@app.get("/")
+async def root():
+    """Health check endpoint for Render and browsers."""
+    return {"status": "ok", "message": "WebSocket server running"}
 
-async def forward_command(command: str):
-    """Forward command to Server B via HTTP POST."""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Forwarding '{command}' to Server B at {SERVER_B_URL}...")
-    full_url = SERVER_B_URL if SERVER_B_URL.endswith('/command') else f"{SERVER_B_URL}/command"
-
-    try:
-        payload = {"command": command, "source": "ServerA"}
-        response = requests.post(full_url, json=payload, timeout=10)
-
-        if response.status_code == 200:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Server B acknowledged command. Response: {response.text}")
-            return f"✅ '{command}' forwarded successfully. Server B replied: {response.text}"
-        else:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Server B returned error status: {response.status_code}")
-            return f"⚠️ Error: Server B responded with status {response.status_code}."
-
-    except requests.exceptions.RequestException as e:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] ERROR: Failed to reach Server B. Details: {e}")
-        return f"❌ Failed to connect to Server B. {e.__class__.__name__}"
-
-async def handler(websocket, path):
-    """Handle incoming WebSocket connections and messages."""
-    CONNECTED_CLIENTS.add(websocket)
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Client connected. Total: {len(CONNECTED_CLIENTS)}")
+@app.websocket("/")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for clients (Wemos, browser UI)."""
+    await websocket.accept()
+    connected_clients.add(websocket)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Client connected. Total: {len(connected_clients)}")
 
     try:
-        async for message in websocket:
-            command = message.strip()
+        while True:
+            command = await websocket.receive_text()
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Received command: '{command}'")
 
             if not command:
-                await websocket.send("⚠️ Error: Empty command received.")
+                await websocket.send_text("⚠️ Error: Empty command received.")
                 continue
 
             response = await forward_command(command)
-            await websocket.send(response)
+            await websocket.send_text(response)
 
-    except websockets.exceptions.ConnectionClosedOK:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Client disconnected gracefully.")
-    except Exception as e:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Unexpected error: {e}")
+    except WebSocketDisconnect:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Client disconnected.")
     finally:
-        CONNECTED_CLIENTS.remove(websocket)
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Client disconnected. Total: {len(CONNECTED_CLIENTS)}")
+        connected_clients.remove(websocket)
 
-async def main():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Starting Server A on ws://{WS_HOST}:{WS_PORT}")
-    async with websockets.serve(handler, WS_HOST, WS_PORT):
-        await asyncio.Future()  # Run forever
+async def forward_command(command: str):
+    """Forward command to Server B via HTTP POST."""
+    full_url = SERVER_B_URL if SERVER_B_URL.endswith('/command') else f"{SERVER_B_URL}/command"
+    payload = {"command": command, "source": "ServerA"}
 
-if __name__ == "__main__":
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nServer A stopped by user.")
-    except Exception as e:
-        print(f"Startup error: {e}")
+        response = requests.post(full_url, json=payload, timeout=10)
+        if response.status_code == 200:
+            return f"✅ '{command}' forwarded. Server B replied: {response.text}"
+        else:
+            return f"⚠️ Error: Server B responded with status {response.status_code}."
+    except requests.exceptions.RequestException as e:
+        return f"❌ Failed to connect to Server B. {e.__class__.__name__}"
+
+# --- Local run block (optional for dev) ---
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 5000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)

@@ -85,7 +85,9 @@ async def check_php_backend():
                         except Exception:
                             pass
                 else:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] PHP backend response indicates failure: {data}")
+                    # Explicitly print the backend's failure message
+                    backend_msg = data.get("message") if data else "No message"
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] PHP backend response indicates failure: {backend_msg}")
         except Exception as e:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] check_php_backend error: {e}")
 

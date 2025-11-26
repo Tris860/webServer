@@ -4,7 +4,7 @@ import requests
 import asyncio
 from datetime import datetime
 from typing import Dict, Set
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.responses import JSONResponse
 
 # --- Configuration ---
@@ -78,6 +78,33 @@ async def ws_browser(websocket: WebSocket, email: str = Query(...)):
         user_clients[email].discard(websocket)
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Browser for {email} disconnected")
 
+# --- Callback endpoint for Server B ---
+@app.post("/notify/device-status")
+async def notify_device_status(request: Request):
+    """Receive device status events from Server B and notify bound browsers."""
+    data = await request.json()
+    device_name = data.get("deviceName")
+    status = data.get("status")
+    payload = data.get("payload")
+
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Callback from Server B: {device_name} → {status}")
+
+    # Notify all browser sessions bound to this device
+    for email, dev in user_to_device.items():
+        if dev == device_name:
+            for ws in list(user_clients.get(email, [])):
+                try:
+                    event = {"type": "device_status",
+                             "deviceName": device_name,
+                             "status": status}
+                    if payload:
+                        event["payload"] = payload
+                    await ws.send_text(json.dumps(event))
+                except Exception:
+                    pass
+
+    return {"status": "ok", "message": f"Event for {device_name} processed."}
+
 # --- Helpers ---
 def get_device_for_user(email: str) -> str | None:
     if not email:
@@ -119,7 +146,6 @@ async def forward_command(command: str, target_device: str = None):
 
 async def check_device_status(device_name: str) -> str:
     """Ask Server B if a device is connected (stub — could be an API call)."""
-    # For now, just forward a status check command
     resp = await forward_command("STATUS_CHECK", device_name)
     if "replied" in resp:
         return "CONNECTED"
@@ -141,10 +167,8 @@ async def check_php_backend():
                 if data and data.get("success") is True:
                     backend_msg = data.get("message", "No message")
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ TIME MATCHED: {backend_msg} : {data.get('id')}")
-                    # Forward AUTO_ON to Server B for each bound device
                     for email, device_name in user_to_device.items():
                         await forward_command("AUTO_ON", device_name)
-                        # Notify all browser sessions for this user
                         for ws in list(user_clients.get(email, [])):
                             try:
                                 await ws.send_text(json.dumps({

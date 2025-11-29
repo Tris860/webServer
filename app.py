@@ -165,19 +165,38 @@ async def check_php_backend():
                     data = None
 
                 if data and data.get("success") is True:
-                    backend_msg = data.get("message", "No message")
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ TIME MATCHED: {backend_msg} : {data.get('id')}")
-                    for email, device_name in user_to_device.items():
-                        await forward_command("AUTO_ON", device_name)
-                        for ws in list(user_clients.get(email, [])):
-                            try:
-                                await ws.send_text(json.dumps({
-                                    "type": "auto_on_trigger",
-                                    "deviceName": device_name,
-                                    "message": backend_msg
-                                }))
-                            except Exception:
-                                pass
+                    periods = data.get("periods", [])
+                    if not periods:
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ TIME NOT MATCHED: No active periods returned")
+                    for period in periods:
+                        backend_msg = period.get("message", "No message")
+                        period_id = period.get("id")
+                        owner = period.get("owner")
+                        devices = period.get("devices", [])
+
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ TIME MATCHED: {backend_msg} : {period_id} (owner={owner})")
+
+                        if devices:
+                            for device in devices:
+                                device_name = device.get("name")
+                                if device_name and device_name != "No device assigned to this timetable":
+                                    # Forward AUTO_ON to Server B
+                                    await forward_command("AUTO_ON", device_name)
+
+                                    # Notify browser clients bound to this owner
+                                    for ws in list(user_clients.get(owner, [])):
+                                        try:
+                                            await ws.send_text(json.dumps({
+                                                "type": "auto_on_trigger",
+                                                "deviceName": device_name,
+                                                "message": backend_msg
+                                            }))
+                                        except Exception:
+                                            pass
+                                else:
+                                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No device assigned for {backend_msg}")
+                        else:
+                            print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No devices array for {backend_msg}")
                 else:
                     backend_msg = data.get("message", "No message") if data else "No data"
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ TIME NOT MATCHED: {backend_msg}")

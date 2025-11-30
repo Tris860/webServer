@@ -168,13 +168,19 @@ async def check_php_backend():
                     periods = data.get("periods", [])
                     if not periods:
                         print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ TIME NOT MATCHED: No active periods returned")
+
                     for period in periods:
                         backend_msg = period.get("message", "No message")
                         period_id = period.get("id")
-                        owner = period.get("owner")
+                        owner = (period.get("owner") or "").strip().lower()
                         devices = period.get("devices", [])
 
                         print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ TIME MATCHED: {backend_msg} : {period_id} (owner={owner})")
+
+                        if owner not in user_clients:
+                            print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No browser registered for owner: {owner}")
+                        else:
+                            print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔔 Notifying browser(s) for {owner}")
 
                         if devices:
                             for device in devices:
@@ -191,10 +197,11 @@ async def check_php_backend():
                                                 "deviceName": device_name,
                                                 "message": backend_msg
                                             }))
-                                        except Exception:
-                                            pass
+                                            print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔔 Sent auto_on_trigger to {owner} for {device_name}")
+                                        except Exception as e:
+                                            print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to notify {owner}: {e}")
                                 else:
-                                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No device assigned for {backend_msg}")
+                                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No valid device for {backend_msg}")
                         else:
                             print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No devices array for {backend_msg}")
                 else:
